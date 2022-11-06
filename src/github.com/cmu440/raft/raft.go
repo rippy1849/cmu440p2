@@ -66,6 +66,29 @@ type ApplyCommand struct {
 	Command interface{}
 }
 
+// LogEntry
+// ====
+//
+// Log entry, per paper outline
+// TODO What needs to go in here? Left as generic for now
+type LogEntry struct {
+	Command interface{}
+}
+
+// AppendEntriesArgs
+// ===========
+//
+// Args for AppendEntries RPC are as per the paper specifics
+// term is the leader's term
+type AppendEntriesArgs struct {
+	term         int
+	leaderId     int
+	prevLogIndex int
+	prevLogTerm  int
+	entires      []LogEntry
+	leaderCommit int
+}
+
 // Raft struct
 // ===========
 //
