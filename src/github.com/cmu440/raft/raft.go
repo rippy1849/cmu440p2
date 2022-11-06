@@ -100,7 +100,7 @@ func (rf *Raft) GetState() (int, int, bool) {
 	//Grab term from raft
 	term = rf.cTerm
 
-	//Check to see if the raft is the leader
+	//Check to see if the raft is the leader, 1 = leader, 2 = candidate, 3 = follower
 	if rf.cRole == 1 {
 
 		isleader = true
@@ -147,7 +147,17 @@ type RequestVoteReply struct {
 //
 // Example RequestVote RPC handler
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
-	// Your code here (2A, 2B)
+
+	rf.mux.Lock()
+	defer rf.mux.Unlock()
+
+	//Check to see if term is lower (out of date)
+	if args.term < rf.cTerm {
+		reply.term = rf.cTerm     //Bring the term up to date
+		reply.voteGranted = false //reject vote since the term is stale
+		return
+	}
+
 }
 
 // sendRequestVote
