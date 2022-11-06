@@ -70,9 +70,10 @@ type ApplyCommand struct {
 // ====
 //
 // Log entry, per paper outline
-// TODO What needs to go in here? Left as generic for now
+// TODO What else needs to go in here?
 type LogEntry struct {
 	Command interface{}
+	term    int
 }
 
 // AppendEntriesArgs
@@ -104,6 +105,7 @@ type Raft struct {
 
 	cTerm int
 	cRole int
+	logs  []LogEntry
 
 	// Your data here (2A, 2B).
 	// Look at the Raft paper's Figure 2 for a description of what
@@ -179,6 +181,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	rf.mux.Lock()
 	defer rf.mux.Unlock()
 
+	//Case 1
 	//Check to see if term is lower (out of date)
 	if args.term < rf.cTerm {
 		reply.term = rf.cTerm     //Bring the term up to date
@@ -186,7 +189,35 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		return
 	}
 
-	//TODO need other cases
+	//current log index
+	lastLogIndex := len(rf.logs) - 1
+	//current log term
+	lastLogTerm := rf.logs[lastLogIndex].term
+
+	//Case 2
+	//See if the lastLogterm is below current, or equal, and the the index is lesser. If so, update the term & reject the vote
+	if args.lastLogTerm < lastLogTerm || (args.lastLogTerm == lastLogTerm && args.lastLogIndex < lastLogIndex) {
+
+		reply.term = args.term
+		reply.voteGranted = false
+
+	} else if rf.cTerm < args.term {
+		//Case 3
+		//Term is not stale, ok to grant vote
+		reply.term = args.term
+		reply.voteGranted = true
+
+	} else {
+		//Case 4
+		//Term is relatively stale, not valid, bring up to date & reject vote
+		reply.term = rf.cTerm
+		reply.voteGranted = false
+
+	}
+
+	//Discovers term is out of date, revert to follower here
+
+	//TODO figure out how to revert to follower
 
 }
 
