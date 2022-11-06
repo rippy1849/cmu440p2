@@ -50,6 +50,11 @@ const kLogToStdout = true
 // Change this to output logs to a different directory
 const kLogOutputDir = "./raftlogs/"
 
+const hbInterval = 100 //Sends heartbeat 10 times per second, no more than that per project specifics
+
+// TODO Need to find proper timeout interval, this is a placeholder (Need to add randomization as per paper)
+const eTimeout = 400 //Election timeout
+
 // ApplyCommand
 // ========
 //
@@ -157,6 +162,8 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		reply.voteGranted = false //reject vote since the term is stale
 		return
 	}
+
+	//TODO need other cases
 
 }
 
