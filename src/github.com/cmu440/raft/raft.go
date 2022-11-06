@@ -74,8 +74,8 @@ type Raft struct {
 	// you are free to remove it completely.
 	logger *log.Logger // We provide you with a separate logger per peer.
 
-	c_term int
-	c_role int
+	cTerm int
+	cRole int
 
 	// Your data here (2A, 2B).
 	// Look at the Raft paper's Figure 2 for a description of what
@@ -98,10 +98,10 @@ func (rf *Raft) GetState() (int, int, bool) {
 	defer rf.mux.Unlock()
 
 	//Grab term from raft
-	term = rf.c_term
+	term = rf.cTerm
 
 	//Check to see if the raft is the leader
-	if rf.c_role == 1 {
+	if rf.cRole == 1 {
 
 		isleader = true
 	} else {
@@ -121,7 +121,11 @@ func (rf *Raft) GetState() (int, int, bool) {
 // ===========
 // Field names must start with capital letters!
 type RequestVoteArgs struct {
-	// Your data here (2A, 2B)
+	//Candidate's term, candidates requesting vote, index of candidates's last log entry, term of candidate's last log entry
+	term         int //candidates term
+	candidateId  int //candidate requesting vote
+	lastLogIndex int //index of candidate's last log entry
+	lastLogTerm  int //term of candidates last log entry
 }
 
 // RequestVoteReply
@@ -133,7 +137,9 @@ type RequestVoteArgs struct {
 // ===========
 // Field names must start with capital letters!
 type RequestVoteReply struct {
-	// Your data here (2A)
+	//Needs yes or no on vote's outcome, along with the current term to check against per the paper specifics
+	term        int  //currentTerm, for candidate to update itself
+	voteGranted bool //true means candidate recieved vote
 }
 
 // RequestVote
