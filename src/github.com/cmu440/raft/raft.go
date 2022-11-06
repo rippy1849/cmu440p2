@@ -330,3 +330,7 @@ func NewPeer(peers []*rpc.ClientEnd, me int, applyCh chan ApplyCommand) *Raft {
 
 	return rf
 }
+
+func (rf *Raft) AppendEntries(args *AppendEntriesArgs) {
+
+}
