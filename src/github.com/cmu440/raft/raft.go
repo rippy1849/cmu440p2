@@ -76,6 +76,12 @@ type LogEntry struct {
 	term    int
 }
 
+type revertToFol struct {
+	term  int
+	vote  int
+	reset bool
+}
+
 // AppendEntriesArgs
 // ===========
 //
@@ -103,10 +109,11 @@ type Raft struct {
 	// you are free to remove it completely.
 	logger *log.Logger // We provide you with a separate logger per peer.
 
-	cTerm int
-	cRole int
-	logs  []LogEntry
-
+	cTerm          int
+	cRole          int
+	logs           []LogEntry
+	revertToFol    chan revertToFol
+	revertComplete chan bool
 	// Your data here (2A, 2B).
 	// Look at the Raft paper's Figure 2 for a description of what
 	// state a Raft peer should maintain
@@ -195,7 +202,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 	lastLogTerm := rf.logs[lastLogIndex].term
 
 	//Case 2
-	//See if the lastLogterm is below current, or equal, and the the index is lesser. If so, update the term & reject the vote
+	//See if the lastLogterm is below current, or, equal and the the index is lesser. If so, update the term & reject the vote
 	if args.lastLogTerm < lastLogTerm || (args.lastLogTerm == lastLogTerm && args.lastLogIndex < lastLogIndex) {
 
 		reply.term = args.term
@@ -217,7 +224,13 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 
 	//Discovers term is out of date, revert to follower here
 
-	//TODO figure out how to revert to follower
+	if rf.cTerm < args.term {
+
+		//create follower reversion based on current state of node
+		var revert revertToFol = revertToFol{args.term, args.candidateId, reply.voteGranted}
+		rf.revertToFol <- revert //queue reversion
+		<-rf.revertComplete      //Push complete for confirmation
+	}
 
 }
 
