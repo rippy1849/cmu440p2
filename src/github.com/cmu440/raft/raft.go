@@ -34,8 +34,10 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"math/rand"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/cmu440/rpc"
 )
@@ -123,6 +125,10 @@ type Raft struct {
 	logs           []LogEntry
 	revertToFol    chan revertToFol
 	revertComplete chan bool
+
+	votedFor  int
+	exitQueue chan bool
+	exitCheck chan bool
 	// Your data here (2A, 2B).
 	// Look at the Raft paper's Figure 2 for a description of what
 	// state a Raft peer should maintain
@@ -358,6 +364,12 @@ func NewPeer(peers []*rpc.ClientEnd, me int, applyCh chan ApplyCommand) *Raft {
 	rf.peers = peers
 	rf.me = me
 
+	//Start the peer as a follower
+	rf.revertToFol = make(chan revertToFol)
+	rf.revertComplete = make(chan bool)
+
+	rf.cTerm = 0
+
 	if kEnableDebugLogs {
 		peerName := peers[me].String()
 		logPrefix := fmt.Sprintf("%s ", peerName)
@@ -382,6 +394,13 @@ func NewPeer(peers []*rpc.ClientEnd, me int, applyCh chan ApplyCommand) *Raft {
 	// Your initialization code here (2A, 2B)
 
 	return rf
+}
+
+func (rf *Raft) elecTimeout() int {
+
+	randOffset := rand.New(rand.NewSource(time.Now().UnixMilli()))
+	return eTimeout + randOffset.Intn(eTimeout)
+
 }
 
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
