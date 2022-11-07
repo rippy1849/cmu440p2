@@ -120,6 +120,7 @@ type Raft struct {
 	// you are free to remove it completely.
 	logger *log.Logger // We provide you with a separate logger per peer.
 
+	timeout        *time.Timer
 	cTerm          int
 	cRole          int
 	logs           []LogEntry
@@ -367,8 +368,13 @@ func NewPeer(peers []*rpc.ClientEnd, me int, applyCh chan ApplyCommand) *Raft {
 	//Start the peer as a follower
 	rf.revertToFol = make(chan revertToFol)
 	rf.revertComplete = make(chan bool)
+	rf.exitQueue = make(chan bool)
+	rf.exitCheck = make(chan bool)
 
-	rf.cTerm = 0
+	rf.cTerm = 0     //starting count at 0
+	rf.votedFor = -1 //Haven't voted for anyone yet
+
+	go rf.Follower() //start life as a follower ( I feel like there's some life lesson here)
 
 	if kEnableDebugLogs {
 		peerName := peers[me].String()
@@ -403,7 +409,7 @@ func (rf *Raft) elecTimeout() int {
 
 }
 
-func (rf *Raft) makeLeader() {
+func (rf *Raft) Leader() {
 
 	go func() {
 
@@ -418,19 +424,111 @@ func (rf *Raft) makeLeader() {
 
 	}()
 
+	for true {
+
+		select {
+
+		case norm := <-rf.revertToFol:
+			//revert to a follower
+			go rf.makeFollower(norm)
+			return
+		case <-rf.exitQueue:
+			return
+
+		default:
+
+		}
+
+	}
+
 }
 
-func (rf *Raft) makeCandidate() {
+func (rf *Raft) Candidate() {
 
 	rf.cRole = 2
 
-	votes := make(chan bool, len(rf.peers))
+	for true {
+
+		//Start an election the moment I'm a candidate
+		voteOutcome := make(chan bool, len(rf.peers))
+		go rf.electionProcess(voteOutcome)
+		//Reset the timeout
+		rf.timeout.Reset(time.Duration(rf.elecTimeout()) * time.Millisecond)
+
+		select {
+
+		case norm := <-rf.revertToFol:
+			//Got a hb from a new leader, back to being a boring follower
+			go rf.makeFollower(norm)
+			return
+		case <-rf.exitQueue:
+			return
+		case winner := <-voteOutcome:
+			//I won the election! Time to make some changes around here... or just continue the regime
+			if winner == true {
+
+				go rf.Leader()
+				return
+			}
+		case <-rf.timeout.C:
+			//Repeat the process until there is a new leader, essentially a 'continue'
+		}
+
+	}
 
 }
 
-func (rf *Raft) makeFollower() {
+func (rf *Raft) makeFollower(fol revertToFol) {
 
 	rf.cRole = 3
+	if rf.cTerm < fol.term {
+		rf.cTerm = fol.term
+	}
+	if fol.vote != -1 {
+		rf.votedFor = fol.vote
+
+	}
+	rf.revertComplete <- true
+	if fol.reset == true {
+		rf.timeout.Reset(time.Duration(rf.elecTimeout()) * time.Millisecond)
+	}
+
+	rf.Follower()
+
+}
+
+func (rf *Raft) Follower() {
+
+	rf.cRole = 3
+
+	//Run this loop while in follower mode
+	for true {
+
+		select {
+
+		case norm := <-rf.revertToFol:
+			//Normal default case, remain a follower listening for heartbeats until something interesting happens
+			if norm.term > rf.cTerm {
+
+				go rf.makeFollower(norm)
+				return
+
+			}
+			rf.revertComplete <- true
+			if norm.reset == true {
+
+				rf.timeout.Reset(time.Duration(rf.elecTimeout()) * time.Millisecond)
+			}
+		case <-rf.timeout.C:
+			//No heartbeat! Time for something interesting, let's be a candidate!
+			go rf.Candidate()
+			return
+
+		case <-rf.exitQueue:
+			return
+		}
+
+	}
 
 }
 
@@ -444,7 +542,7 @@ func (rf *Raft) electionProcess(winner chan bool) {
 	//• If votes received from majority of servers: become leader
 	//• If AppendEntries RPC received from new leader: convert to
 	//follower
-	//• If election timeout elapses: start new election
+	//TODO If election timeout elapses: start new election
 
 	maxVotes := len(rf.peers)
 	voteList := make([]bool, maxVotes)
