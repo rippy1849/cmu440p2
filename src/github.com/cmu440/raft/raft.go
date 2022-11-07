@@ -403,11 +403,107 @@ func (rf *Raft) elecTimeout() int {
 
 }
 
-func (rf *Raft) makeLeader() {}
+func (rf *Raft) makeLeader() {
 
-func (rf *Raft) makeCandidate() {}
+	go func() {
 
-func (rf *Raft) makeFollower() {}
+		rf.mux.Lock()
+		defer rf.mux.Unlock()
+		//Only valid conversion if peer is a candidate
+		if rf.cRole != 2 {
+
+			return
+		}
+		rf.cRole = 1
+
+	}()
+
+}
+
+func (rf *Raft) makeCandidate() {
+
+	rf.cRole = 2
+
+	votes := make(chan bool, len(rf.peers))
+
+}
+
+func (rf *Raft) makeFollower() {
+
+	rf.cRole = 3
+
+}
+
+func (rf *Raft) electionProcess(winner chan bool) {
+
+	//On conversion to candidate, start election:
+	//• Increment currentTerm
+	//• Vote for self
+	//• Reset election timer
+	//• Send RequestVote RPCs to all other servers
+	//• If votes received from majority of servers: become leader
+	//• If AppendEntries RPC received from new leader: convert to
+	//follower
+	//• If election timeout elapses: start new election
+
+	maxVotes := len(rf.peers)
+	voteList := make([]bool, maxVotes)
+
+	rf.mux.Lock()
+
+	//Make sure I'm a candidate
+	if rf.cRole != 2 {
+		rf.mux.Unlock()
+		return
+	}
+
+	rf.cTerm += 1       //increment the term
+	rf.votedFor = rf.me //vote for self
+
+	voteList[rf.me] = true //register my vote on the list
+
+	//Init request to broadcast to other peers
+	var voteBroad RequestVoteArgs
+	voteBroad.term = rf.cTerm
+	voteBroad.candidateId = rf.me
+	voteBroad.lastLogIndex = len(rf.logs) - 1
+	voteBroad.lastLogTerm = rf.logs[voteBroad.lastLogIndex].term
+	rf.mux.Unlock()
+
+	for i := 0; i < maxVotes; i++ {
+		if i != rf.me {
+
+			go func(voteList []bool, peer_num int) {
+
+				//Send out vote requests to see reply
+				var reply RequestVoteReply
+				confirm := rf.sendRequestVote(peer_num, &voteBroad, &reply)
+
+				voteList[peer_num] = confirm && reply.voteGranted
+
+				//Check to see if I have majority
+				count := 0
+				for j := 0; j < maxVotes; j++ {
+					if voteList[j] {
+						count++
+
+					}
+
+				}
+				//If vote tally is atleast majority, we have a winner
+				if count >= (maxVotes/2)+1 {
+
+					winner <- true
+
+				}
+
+			}(voteList, i)
+
+		}
+
+	}
+
+}
 
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
 	//prevent race cases
