@@ -399,7 +399,7 @@ func NewPeer(peers []*rpc.ClientEnd, me int, applyCh chan ApplyCommand) *Raft {
 func (rf *Raft) elecTimeout() int {
 
 	randOffset := rand.New(rand.NewSource(time.Now().UnixMilli()))
-	return eTimeout + randOffset.Intn(eTimeout)
+	return eTimeout + randOffset.Intn(200)
 
 }
 
