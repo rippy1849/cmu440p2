@@ -96,6 +96,16 @@ type AppendEntriesArgs struct {
 	leaderCommit int
 }
 
+//AppendEntriesReply
+//
+// Replies with current term for leader to update itself and bool success if the follower contained
+// entry matching prevLogIndex and prevLogTerm
+
+type AppendEntriesReply struct {
+	term    int
+	success bool
+}
+
 // Raft struct
 // ===========
 //
