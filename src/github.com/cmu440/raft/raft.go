@@ -403,6 +403,12 @@ func (rf *Raft) elecTimeout() int {
 
 }
 
+func (rf *Raft) makeLeader() {}
+
+func (rf *Raft) makeCandidate() {}
+
+func (rf *Raft) makeFollower() {}
+
 func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
 	//prevent race cases
 	rf.mux.Lock()
