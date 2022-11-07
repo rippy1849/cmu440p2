@@ -70,7 +70,6 @@ type ApplyCommand struct {
 // ====
 //
 // Log entry, per paper outline
-// TODO What else needs to go in here?
 type LogEntry struct {
 	Command interface{}
 	term    int
@@ -385,6 +384,39 @@ func NewPeer(peers []*rpc.ClientEnd, me int, applyCh chan ApplyCommand) *Raft {
 	return rf
 }
 
-func (rf *Raft) AppendEntries(args *AppendEntriesArgs) {
+func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
+	//prevent race cases
+	rf.mux.Lock()
+	defer rf.mux.Unlock()
+
+	//Case 1: term < current term, bad, reply false
+	if args.term < rf.cTerm {
+		reply.term = rf.cTerm //update the term
+		reply.success = false //not successful
+
+	} else {
+
+		lgLenLess := len(rf.logs) < args.prevLogIndex+1
+		lgNoMatch := !lgLenLess && args.prevLogIndex > 0 && (rf.logs[args.prevLogIndex].term != args.prevLogTerm)
+		//Case 2 : Reply false if log doesn't contain entry at prevLogIndex or if it does, but doesn't match
+		if lgLenLess || lgNoMatch {
+			reply.term = args.term
+			reply.success = false
+		} else {
+
+			//Case 3: If an existing entry conflicts with a new one (same index
+			//but different terms), delete the existing entry and all that
+			//follow it
+			if len(rf.logs)-1 != args.prevLogIndex {
+				rf.logs = rf.logs[:args.prevLogIndex+1]
+			}
+			//Case 4:  Append any new entries not already in the log
+			rf.logs = append(rf.logs, args.entires...)
+
+			//TODO Add case 5
+
+		}
+
+	}
 
 }
