@@ -175,10 +175,10 @@ func (rf *Raft) GetState() (int, int, bool) {
 // Field names must start with capital letters!
 type RequestVoteArgs struct {
 	//Candidate's term, candidates requesting vote, index of candidates's last log entry, term of candidate's last log entry
-	term         int //candidates term
-	candidateId  int //candidate requesting vote
-	lastLogIndex int //index of candidate's last log entry
-	lastLogTerm  int //term of candidates last log entry
+	Term         int //candidates term
+	CandidateId  int //candidate requesting vote
+	LastLogIndex int //index of candidate's last log entry
+	LastLogTerm  int //term of candidates last log entry
 }
 
 // RequestVoteReply
@@ -191,8 +191,8 @@ type RequestVoteArgs struct {
 // Field names must start with capital letters!
 type RequestVoteReply struct {
 	//Needs yes or no on vote's outcome, along with the current term to check against per the paper specifics
-	term        int  //currentTerm, for candidate to update itself
-	voteGranted bool //true means candidate recieved vote
+	Term        int  //currentTerm, for candidate to update itself
+	VoteGranted bool //true means candidate recieved vote
 }
 
 // RequestVote
@@ -206,12 +206,11 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 
 	//Case 1
 	//Check to see if term is lower (out of date)
-	if args.term < rf.CurrentTerm {
-		reply.term = rf.CurrentTerm //Bring the term up to date
-		reply.voteGranted = false   //reject vote since the term is stale
+	if args.Term < rf.CurrentTerm {
+		reply.Term = rf.CurrentTerm //Bring the term up to date
+		reply.VoteGranted = false   //reject vote since the term is stale
 		return
 	}
-
 	//current log index
 	lastLogIndex := len(rf.Logs) - 1
 	//current log term
@@ -219,31 +218,31 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 
 	//Case 2
 	//See if the lastLogterm is below current, or, equal and the the index is lesser. If so, update the term & reject the vote
-	if args.lastLogTerm < lastLogTerm || (args.lastLogTerm == lastLogTerm && args.lastLogIndex < lastLogIndex) {
+	if args.LastLogTerm < lastLogTerm || (args.LastLogTerm == lastLogTerm && args.LastLogIndex < lastLogIndex) {
 
-		reply.term = args.term
-		reply.voteGranted = false
+		reply.Term = args.Term
+		reply.VoteGranted = false
 
-	} else if rf.CurrentTerm < args.term {
+	} else if rf.CurrentTerm < args.Term {
 		//Case 3
 		//Term is not stale, ok to grant vote
-		reply.term = args.term
-		reply.voteGranted = true
+		reply.Term = args.Term
+		reply.VoteGranted = true
 
 	} else {
 		//Case 4
 		//Term is stale, not valid, bring up to date & reject vote
-		reply.term = rf.CurrentTerm
-		reply.voteGranted = false
+		reply.Term = rf.CurrentTerm
+		reply.VoteGranted = false
 
 	}
 
 	//Discovers term is out of date, revert to follower here
 
-	if rf.CurrentTerm < args.term {
+	if rf.CurrentTerm < args.Term {
 
 		//create follower reversion based on current state of node
-		var revert RevertToFol = RevertToFol{args.term, args.candidateId, reply.voteGranted}
+		var revert RevertToFol = RevertToFol{args.Term, args.CandidateId, reply.VoteGranted}
 		rf.RevertToFol <- revert //queue reversion
 		<-rf.RevertComplete      //Push complete for confirmation
 	}
@@ -531,8 +530,8 @@ func (rf *Raft) electionProcess(winner chan bool) {
 
 	//Init request to broadcast to other peers
 	var voteBroad RequestVoteArgs
-	voteBroad.term = rf.CurrentTerm
-	voteBroad.candidateId = rf.Me
+	voteBroad.Term = rf.CurrentTerm
+	voteBroad.CandidateId = rf.Me
 	//voteBroad.lastLogIndex = len(rf.logs) - 1
 	//voteBroad.lastLogTerm = rf.logs[voteBroad.lastLogIndex].term
 	rf.Mux.Unlock()
@@ -552,7 +551,7 @@ func (rf *Raft) electionProcess(winner chan bool) {
 
 				fmt.Println("OK")
 
-				voteList[peer_num] = confirm && reply.voteGranted
+				voteList[peer_num] = confirm && reply.VoteGranted
 
 				//Check to see if I have majority
 				count := 0
