@@ -74,13 +74,13 @@ type ApplyCommand struct {
 // Log entry, per paper outline
 type LogEntry struct {
 	Command interface{}
-	term    int
+	Term    int
 }
 
-type revertToFol struct {
-	term  int
-	vote  int
-	reset bool
+type RevertToFol struct {
+	Term  int
+	Vote  int
+	Reset bool
 }
 
 // AppendEntriesArgs
@@ -89,12 +89,12 @@ type revertToFol struct {
 // Args for AppendEntries RPC are as per the paper specifics
 // term is the leader's term
 type AppendEntriesArgs struct {
-	term         int
-	leaderId     int
-	prevLogIndex int
-	prevLogTerm  int
-	entires      []LogEntry
-	leaderCommit int
+	Term         int
+	LeaderId     int
+	PrevLogIndex int
+	PrevLogTerm  int
+	Entires      []LogEntry
+	LeaderCommit int
 }
 
 //AppendEntriesReply
@@ -103,8 +103,8 @@ type AppendEntriesArgs struct {
 // entry matching prevLogIndex and prevLogTerm
 
 type AppendEntriesReply struct {
-	term    int
-	success bool
+	Term    int
+	Success bool
 }
 
 // Raft struct
@@ -112,24 +112,24 @@ type AppendEntriesReply struct {
 //
 // A Go object implementing a single Raft peer
 type Raft struct {
-	mux   sync.Mutex       // Lock to protect shared access to this peer's state
-	peers []*rpc.ClientEnd // RPC end points of all peers
-	me    int              // this peer's index into peers[]
+	Mux   sync.Mutex       // Lock to protect shared access to this peer's state
+	Peers []*rpc.ClientEnd // RPC end points of all peers
+	Me    int              // this peer's index into peers[]
 	// You are expected to create reasonably clear log files before asking a
 	// debugging question on Piazza or OH. Use of this logger is optional, and
 	// you are free to remove it completely.
-	logger *log.Logger // We provide you with a separate logger per peer.
+	Logger *log.Logger // We provide you with a separate logger per peer.
 
-	timeout        *time.Timer
-	cTerm          int
-	cRole          int
-	logs           []LogEntry
-	revertToFol    chan revertToFol
-	revertComplete chan bool
+	Timeout        *time.Timer
+	CurrentTerm    int
+	CurrentRole    int
+	Logs           []LogEntry
+	RevertToFol    chan RevertToFol
+	RevertComplete chan bool
 
-	votedFor  int
-	exitQueue chan bool
-	exitCheck chan bool
+	VotedFor  int
+	ExitQueue chan bool
+	ExitCheck chan bool
 	// Your data here (2A, 2B).
 	// Look at the Raft paper's Figure 2 for a description of what
 	// state a Raft peer should maintain
@@ -147,14 +147,14 @@ func (rf *Raft) GetState() (int, int, bool) {
 	var isleader bool
 
 	//Lock to prevent race cases
-	rf.mux.Lock()
-	defer rf.mux.Unlock()
+	rf.Mux.Lock()
+	defer rf.Mux.Unlock()
 
 	//Grab term from raft
-	term = rf.cTerm
-
+	term = rf.CurrentTerm
+	me = rf.Me
 	//Check to see if the raft is the leader, 1 = leader, 2 = candidate, 3 = follower
-	if rf.cRole == 1 {
+	if rf.CurrentRole == 1 {
 
 		isleader = true
 	} else {
@@ -201,21 +201,21 @@ type RequestVoteReply struct {
 // Example RequestVote RPC handler
 func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 
-	rf.mux.Lock()
-	defer rf.mux.Unlock()
+	rf.Mux.Lock()
+	defer rf.Mux.Unlock()
 
 	//Case 1
 	//Check to see if term is lower (out of date)
-	if args.term < rf.cTerm {
-		reply.term = rf.cTerm     //Bring the term up to date
-		reply.voteGranted = false //reject vote since the term is stale
+	if args.term < rf.CurrentTerm {
+		reply.term = rf.CurrentTerm //Bring the term up to date
+		reply.voteGranted = false   //reject vote since the term is stale
 		return
 	}
 
 	//current log index
-	lastLogIndex := len(rf.logs) - 1
+	lastLogIndex := len(rf.Logs) - 1
 	//current log term
-	lastLogTerm := rf.logs[lastLogIndex].term
+	lastLogTerm := rf.Logs[lastLogIndex].Term
 
 	//Case 2
 	//See if the lastLogterm is below current, or, equal and the the index is lesser. If so, update the term & reject the vote
@@ -224,7 +224,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 		reply.term = args.term
 		reply.voteGranted = false
 
-	} else if rf.cTerm < args.term {
+	} else if rf.CurrentTerm < args.term {
 		//Case 3
 		//Term is not stale, ok to grant vote
 		reply.term = args.term
@@ -232,20 +232,20 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 
 	} else {
 		//Case 4
-		//Term is relatively stale, not valid, bring up to date & reject vote
-		reply.term = rf.cTerm
+		//Term is stale, not valid, bring up to date & reject vote
+		reply.term = rf.CurrentTerm
 		reply.voteGranted = false
 
 	}
 
 	//Discovers term is out of date, revert to follower here
 
-	if rf.cTerm < args.term {
+	if rf.CurrentTerm < args.term {
 
 		//create follower reversion based on current state of node
-		var revert revertToFol = revertToFol{args.term, args.candidateId, reply.voteGranted}
-		rf.revertToFol <- revert //queue reversion
-		<-rf.revertComplete      //Push complete for confirmation
+		var revert RevertToFol = RevertToFol{args.term, args.candidateId, reply.voteGranted}
+		rf.RevertToFol <- revert //queue reversion
+		<-rf.RevertComplete      //Push complete for confirmation
 	}
 
 }
@@ -293,7 +293,7 @@ func (rf *Raft) RequestVote(args *RequestVoteArgs, reply *RequestVoteReply) {
 // that the caller passes the address of the reply struct with "&",
 // not the struct itself
 func (rf *Raft) sendRequestVote(server int, args *RequestVoteArgs, reply *RequestVoteReply) bool {
-	ok := rf.peers[server].Call("Raft.RequestVote", args, reply)
+	ok := rf.Peers[server].Call("Raft.RequestVote", args, reply)
 	return ok
 }
 
@@ -340,6 +340,283 @@ func (rf *Raft) Stop() {
 	// Your code here, if desired
 }
 
+func (rf *Raft) elecTimeout() int {
+
+	randOffset := rand.New(rand.NewSource(time.Now().UnixMilli()))
+	return eTimeout + randOffset.Intn(200)
+
+}
+
+func (rf *Raft) sendAppendEntries(server int, args *AppendEntriesArgs, reply *AppendEntriesReply) bool {
+	// DPrintf("[sendAppendEntries] to server:%d request:%v", server, args)
+	ok := rf.Peers[server].Call("Raft.AppendEntries", args, reply)
+	return ok
+}
+
+func (rf *Raft) Leader() {
+
+	go func() {
+		rf.Mux.Lock()
+		defer rf.Mux.Unlock()
+		//Only valid conversion if peer is a candidate
+		if rf.CurrentRole != 2 {
+
+			return
+		}
+		rf.CurrentRole = 1
+
+	}()
+
+	for true {
+
+		select {
+
+		case norm := <-rf.RevertToFol:
+			//revert to a follower
+			go rf.makeFollower(norm)
+			return
+		case <-rf.ExitQueue:
+			return
+
+		default:
+
+			//Make sure you're a leader, so you can send out the heartbeat
+			if rf.CurrentRole == 1 {
+				totalPeers := len(rf.Peers)
+
+				for i := 0; i < totalPeers; i++ {
+					if i != rf.Me {
+
+						go func(peerNum int) {
+
+							var reply AppendEntriesReply
+
+							var args AppendEntriesArgs
+
+							args.Term = rf.CurrentTerm
+							args.LeaderId = rf.Me
+
+							rf.AppendEntries(&args, &reply)
+
+						}(i)
+
+					}
+
+				}
+				time.Sleep(hbInterval * time.Millisecond)
+			}
+		}
+
+	}
+
+}
+
+func (rf *Raft) Candidate() {
+
+	fmt.Println("Candidate started")
+	rf.CurrentRole = 2
+
+	for true {
+
+		//Start an election the moment I'm a candidate
+		voteOutcome := make(chan bool, len(rf.Peers))
+		go rf.electionProcess(voteOutcome)
+		//Reset the timeout
+		rf.Timeout.Reset(time.Duration(rf.elecTimeout()) * time.Millisecond)
+
+		select {
+
+		case norm := <-rf.RevertToFol:
+			//Got a hb from a new leader, back to being a boring follower
+			go rf.makeFollower(norm)
+			return
+		case <-rf.ExitQueue:
+			return
+		case winner := <-voteOutcome:
+			//I won the election! Time to make some changes around here... or just continue the regime
+			if winner == true {
+
+				go rf.Leader()
+				return
+			}
+		case <-rf.Timeout.C:
+			//Repeat the process until there is a new leader, essentially a 'continue'
+		}
+
+	}
+
+}
+
+func (rf *Raft) makeFollower(fol RevertToFol) {
+
+	rf.CurrentRole = 3
+	if rf.CurrentTerm < fol.Term {
+		rf.CurrentTerm = fol.Term
+	}
+	if fol.Vote != -1 {
+		rf.VotedFor = fol.Vote
+
+	}
+	rf.RevertComplete <- true
+	if fol.Reset == true {
+		rf.Timeout.Reset(time.Duration(rf.elecTimeout()) * time.Millisecond)
+	}
+
+	rf.Follower()
+
+}
+
+func (rf *Raft) Follower() {
+
+	rf.CurrentRole = 3
+
+	//Run this loop while in follower mode
+	for true {
+
+		select {
+
+		case norm := <-rf.RevertToFol:
+			//Normal default case, remain a follower listening for heartbeats until something interesting happens
+			if norm.Term > rf.CurrentTerm {
+
+				go rf.makeFollower(norm)
+				return
+
+			}
+			rf.RevertComplete <- true
+			if norm.Reset == true {
+
+				rf.Timeout.Reset(time.Duration(rf.elecTimeout()) * time.Millisecond)
+			}
+		case <-rf.Timeout.C:
+			//No heartbeat! Time for something interesting, let's be a candidate!
+			go rf.Candidate()
+			return
+
+		case <-rf.ExitQueue:
+			return
+		}
+
+	}
+
+}
+
+func (rf *Raft) electionProcess(winner chan bool) {
+
+	//On conversion to candidate, start election:
+	//• Increment currentTerm
+	//• Vote for self
+	//• Reset election timer
+	//• Send RequestVote RPCs to all other servers
+	//• If votes received from majority of servers: become leader
+	//• If AppendEntries RPC received from new leader: convert to
+	//follower
+	//TODO If election timeout elapses: start new election
+
+	maxVotes := len(rf.Peers)
+	voteList := make([]bool, maxVotes)
+
+	rf.Mux.Lock()
+
+	//Make sure I'm a candidate
+	if rf.CurrentRole != 2 {
+		rf.Mux.Unlock()
+		return
+	}
+
+	rf.CurrentTerm += 1 //increment the term
+	rf.VotedFor = rf.Me //vote for self
+
+	voteList[rf.Me] = true //register my vote on the list
+
+	//Init request to broadcast to other peers
+	var voteBroad RequestVoteArgs
+	voteBroad.term = rf.CurrentTerm
+	voteBroad.candidateId = rf.Me
+	//voteBroad.lastLogIndex = len(rf.logs) - 1
+	//voteBroad.lastLogTerm = rf.logs[voteBroad.lastLogIndex].term
+	rf.Mux.Unlock()
+
+	fmt.Println("Good to here")
+
+	for i := 0; i < maxVotes; i++ {
+		if i != rf.Me {
+
+			go func(voteList []bool, peer_num int) {
+
+				fmt.Println("Ok Here")
+
+				//Send out vote requests to see reply
+				var reply RequestVoteReply
+				confirm := rf.sendRequestVote(peer_num, &voteBroad, &reply)
+
+				fmt.Println("OK")
+
+				voteList[peer_num] = confirm && reply.voteGranted
+
+				//Check to see if I have majority
+				count := 0
+				for j := 0; j < maxVotes; j++ {
+					if voteList[j] {
+						count++
+
+					}
+
+				}
+				//If vote tally is atleast majority, we have a winner
+				if count >= (maxVotes/2)+1 {
+
+					winner <- true
+					fmt.Println("Winner made")
+				}
+
+			}(voteList, i)
+
+		}
+
+	}
+
+}
+
+func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
+	//prevent race cases
+	rf.Mux.Lock()
+	defer rf.Mux.Unlock()
+
+	//Case 1: term < current term, bad, reply false
+	if args.Term < rf.CurrentTerm {
+		reply.Term = rf.CurrentTerm //update the term
+		reply.Success = false       //not successful
+
+	} else {
+
+		lgLenLess := len(rf.Logs) < args.PrevLogIndex+1
+		lgNoMatch := !lgLenLess && args.PrevLogIndex > 0 && (rf.Logs[args.PrevLogIndex].Term != args.PrevLogTerm)
+		//Case 2 : Reply false if log doesn't contain entry at prevLogIndex or if it does, but doesn't match
+		if lgLenLess || lgNoMatch {
+			reply.Term = args.Term
+			reply.Success = false
+		} else {
+
+			//Case 3: If an existing entry conflicts with a new one (same index
+			//but different terms), delete the existing entry and all that
+			//follow it
+			if len(rf.Logs)-1 != args.PrevLogIndex {
+				rf.Logs = rf.Logs[:args.PrevLogIndex+1]
+			}
+			//Case 4:  Append any new entries not already in the log
+			rf.Logs = append(rf.Logs, args.Entires...)
+
+			//TODO Add case 5
+
+			reply.Term = args.Term
+			reply.Success = true
+		}
+
+	}
+
+}
+
 // NewPeer
 // ====
 //
@@ -362,25 +639,26 @@ func (rf *Raft) Stop() {
 // for any long-running work
 func NewPeer(peers []*rpc.ClientEnd, me int, applyCh chan ApplyCommand) *Raft {
 	rf := &Raft{}
-	rf.peers = peers
-	rf.me = me
+	rf.Peers = peers
+	rf.Me = me
 
 	//Start the peer as a follower
-	rf.revertToFol = make(chan revertToFol)
-	rf.revertComplete = make(chan bool)
-	rf.exitQueue = make(chan bool)
-	rf.exitCheck = make(chan bool)
+	rf.RevertToFol = make(chan RevertToFol)
+	rf.RevertComplete = make(chan bool)
+	rf.ExitQueue = make(chan bool)
+	rf.ExitCheck = make(chan bool)
 
-	rf.cTerm = 0     //starting count at 0
-	rf.votedFor = -1 //Haven't voted for anyone yet
+	rf.CurrentTerm = 0                                                             //starting count at 0
+	rf.VotedFor = -1                                                               //Haven't voted for anyone yet
+	rf.Timeout = time.NewTimer(time.Duration(rf.elecTimeout()) * time.Millisecond) //setup election timeout
 
-	go rf.Follower() //start life as a follower ( I feel like there's some life lesson here)
+	go rf.Follower() //start life as a follower
 
 	if kEnableDebugLogs {
 		peerName := peers[me].String()
 		logPrefix := fmt.Sprintf("%s ", peerName)
 		if kLogToStdout {
-			rf.logger = log.New(os.Stdout, peerName, log.Lmicroseconds|log.Lshortfile)
+			rf.Logger = log.New(os.Stdout, peerName, log.Lmicroseconds|log.Lshortfile)
 		} else {
 			err := os.MkdirAll(kLogOutputDir, os.ModePerm)
 			if err != nil {
@@ -390,252 +668,14 @@ func NewPeer(peers []*rpc.ClientEnd, me int, applyCh chan ApplyCommand) *Raft {
 			if err != nil {
 				panic(err.Error())
 			}
-			rf.logger = log.New(logOutputFile, logPrefix, log.Lmicroseconds|log.Lshortfile)
+			rf.Logger = log.New(logOutputFile, logPrefix, log.Lmicroseconds|log.Lshortfile)
 		}
-		rf.logger.Println("logger initialized")
+		rf.Logger.Println("logger initialized")
 	} else {
-		rf.logger = log.New(ioutil.Discard, "", 0)
+		rf.Logger = log.New(ioutil.Discard, "", 0)
 	}
 
 	// Your initialization code here (2A, 2B)
 
 	return rf
-}
-
-func (rf *Raft) elecTimeout() int {
-
-	randOffset := rand.New(rand.NewSource(time.Now().UnixMilli()))
-	return eTimeout + randOffset.Intn(200)
-
-}
-
-func (rf *Raft) Leader() {
-
-	go func() {
-
-		rf.mux.Lock()
-		defer rf.mux.Unlock()
-		//Only valid conversion if peer is a candidate
-		if rf.cRole != 2 {
-
-			return
-		}
-		rf.cRole = 1
-
-	}()
-
-	for true {
-
-		select {
-
-		case norm := <-rf.revertToFol:
-			//revert to a follower
-			go rf.makeFollower(norm)
-			return
-		case <-rf.exitQueue:
-			return
-
-		default:
-
-		}
-
-	}
-
-}
-
-func (rf *Raft) Candidate() {
-
-	rf.cRole = 2
-
-	for true {
-
-		//Start an election the moment I'm a candidate
-		voteOutcome := make(chan bool, len(rf.peers))
-		go rf.electionProcess(voteOutcome)
-		//Reset the timeout
-		rf.timeout.Reset(time.Duration(rf.elecTimeout()) * time.Millisecond)
-
-		select {
-
-		case norm := <-rf.revertToFol:
-			//Got a hb from a new leader, back to being a boring follower
-			go rf.makeFollower(norm)
-			return
-		case <-rf.exitQueue:
-			return
-		case winner := <-voteOutcome:
-			//I won the election! Time to make some changes around here... or just continue the regime
-			if winner == true {
-
-				go rf.Leader()
-				return
-			}
-		case <-rf.timeout.C:
-			//Repeat the process until there is a new leader, essentially a 'continue'
-		}
-
-	}
-
-}
-
-func (rf *Raft) makeFollower(fol revertToFol) {
-
-	rf.cRole = 3
-	if rf.cTerm < fol.term {
-		rf.cTerm = fol.term
-	}
-	if fol.vote != -1 {
-		rf.votedFor = fol.vote
-
-	}
-	rf.revertComplete <- true
-	if fol.reset == true {
-		rf.timeout.Reset(time.Duration(rf.elecTimeout()) * time.Millisecond)
-	}
-
-	rf.Follower()
-
-}
-
-func (rf *Raft) Follower() {
-
-	rf.cRole = 3
-
-	//Run this loop while in follower mode
-	for true {
-
-		select {
-
-		case norm := <-rf.revertToFol:
-			//Normal default case, remain a follower listening for heartbeats until something interesting happens
-			if norm.term > rf.cTerm {
-
-				go rf.makeFollower(norm)
-				return
-
-			}
-			rf.revertComplete <- true
-			if norm.reset == true {
-
-				rf.timeout.Reset(time.Duration(rf.elecTimeout()) * time.Millisecond)
-			}
-		case <-rf.timeout.C:
-			//No heartbeat! Time for something interesting, let's be a candidate!
-			go rf.Candidate()
-			return
-
-		case <-rf.exitQueue:
-			return
-		}
-
-	}
-
-}
-
-func (rf *Raft) electionProcess(winner chan bool) {
-
-	//On conversion to candidate, start election:
-	//• Increment currentTerm
-	//• Vote for self
-	//• Reset election timer
-	//• Send RequestVote RPCs to all other servers
-	//• If votes received from majority of servers: become leader
-	//• If AppendEntries RPC received from new leader: convert to
-	//follower
-	//TODO If election timeout elapses: start new election
-
-	maxVotes := len(rf.peers)
-	voteList := make([]bool, maxVotes)
-
-	rf.mux.Lock()
-
-	//Make sure I'm a candidate
-	if rf.cRole != 2 {
-		rf.mux.Unlock()
-		return
-	}
-
-	rf.cTerm += 1       //increment the term
-	rf.votedFor = rf.me //vote for self
-
-	voteList[rf.me] = true //register my vote on the list
-
-	//Init request to broadcast to other peers
-	var voteBroad RequestVoteArgs
-	voteBroad.term = rf.cTerm
-	voteBroad.candidateId = rf.me
-	voteBroad.lastLogIndex = len(rf.logs) - 1
-	voteBroad.lastLogTerm = rf.logs[voteBroad.lastLogIndex].term
-	rf.mux.Unlock()
-
-	for i := 0; i < maxVotes; i++ {
-		if i != rf.me {
-
-			go func(voteList []bool, peer_num int) {
-
-				//Send out vote requests to see reply
-				var reply RequestVoteReply
-				confirm := rf.sendRequestVote(peer_num, &voteBroad, &reply)
-
-				voteList[peer_num] = confirm && reply.voteGranted
-
-				//Check to see if I have majority
-				count := 0
-				for j := 0; j < maxVotes; j++ {
-					if voteList[j] {
-						count++
-
-					}
-
-				}
-				//If vote tally is atleast majority, we have a winner
-				if count >= (maxVotes/2)+1 {
-
-					winner <- true
-
-				}
-
-			}(voteList, i)
-
-		}
-
-	}
-
-}
-
-func (rf *Raft) AppendEntries(args *AppendEntriesArgs, reply *AppendEntriesReply) {
-	//prevent race cases
-	rf.mux.Lock()
-	defer rf.mux.Unlock()
-
-	//Case 1: term < current term, bad, reply false
-	if args.term < rf.cTerm {
-		reply.term = rf.cTerm //update the term
-		reply.success = false //not successful
-
-	} else {
-
-		lgLenLess := len(rf.logs) < args.prevLogIndex+1
-		lgNoMatch := !lgLenLess && args.prevLogIndex > 0 && (rf.logs[args.prevLogIndex].term != args.prevLogTerm)
-		//Case 2 : Reply false if log doesn't contain entry at prevLogIndex or if it does, but doesn't match
-		if lgLenLess || lgNoMatch {
-			reply.term = args.term
-			reply.success = false
-		} else {
-
-			//Case 3: If an existing entry conflicts with a new one (same index
-			//but different terms), delete the existing entry and all that
-			//follow it
-			if len(rf.logs)-1 != args.prevLogIndex {
-				rf.logs = rf.logs[:args.prevLogIndex+1]
-			}
-			//Case 4:  Append any new entries not already in the log
-			rf.logs = append(rf.logs, args.entires...)
-
-			//TODO Add case 5
-
-		}
-
-	}
-
 }
